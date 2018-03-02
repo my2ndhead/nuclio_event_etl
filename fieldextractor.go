@@ -1,4 +1,4 @@
-package splunk_etl
+package nuclio_etl
 
 import (
     "encoding/json"
