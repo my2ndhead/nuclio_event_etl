@@ -12,7 +12,7 @@
 - Response: JSON with fields
 
 - Example:
-
+```
 $ curl localhost:42314/ \
   -H "X-Regex: Name=(?P<field1>\w+).*?Firstname=(?P<field2>\w+)" \
   -d "Name=Kent Firstname=Clark" \
@@ -37,5 +37,5 @@ $ curl localhost:42314/ \
 < 
 * Connection #0 to host localhost left intact
 {"field1":"Kent","field2":"Clark"}
-
+```
 
