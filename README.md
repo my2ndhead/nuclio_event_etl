@@ -1,18 +1,20 @@
 # Experimental Nuclio Event ETL Functions
-- ** Author **:		Mika Borner <mika.borner@gmail.com>
-- ** Description**:	ETL Functions for Extracting, Loading and Transforming timeseries events
-- ** Version **:	@build.version@
 
-# Functions
+- ** Author **: Mika Borner <mika.borner@gmail.com>
+- ** Description**:    ETL Functions for Extracting, Loading and Transforming timeseries events
+- ** Version **:    @build.version@
 
-## fieldextraction
+## Functions
 
-- Header: X-Regex: <regex>
-- Body: String
-- Response: JSON with fields
+### fieldextraction
+
+- Header: X-Regex: *Regex*
+- Body: *String*
+- Response: *JSON with fields*
 
 - Example:
-```
+
+```bash
 $ curl localhost:42314/ \
   -H "X-Regex: Name=(?P<field1>\w+).*?Firstname=(?P<field2>\w+)" \
   -d "Name=Kent Firstname=Clark" \
@@ -27,15 +29,14 @@ $ curl localhost:42314/ \
 > X-Regex: Name=(?P<field1>\w+).*?Firstname=(?P<field2>\w+)
 > Content-Length: 25
 > Content-Type: application/x-www-form-urlencoded
-> 
+>
 * upload completely sent off: 25 out of 25 bytes
 < HTTP/1.1 200 OK
 < Server: nuclio
 < Date: Tue, 27 Feb 2018 15:10:43 GMT
 < Content-Type: application/json
 < Content-Length: 34
-< 
+<
 * Connection #0 to host localhost left intact
 {"field1":"Kent","field2":"Clark"}
 ```
-
