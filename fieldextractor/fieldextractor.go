@@ -1,4 +1,4 @@
-package nuclioetl
+package fieldextractor
 
 import (
 	"encoding/json"
