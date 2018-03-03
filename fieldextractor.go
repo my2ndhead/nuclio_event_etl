@@ -1,4 +1,4 @@
-package nuclio_etl
+package main
 
 import (
     "encoding/json"
