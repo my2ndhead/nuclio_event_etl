@@ -6,7 +6,7 @@
 
 ## Functions
 
-### fieldextraction
+### fieldextractor
 
 - Header: X-Regex: *Regex*
 - Body: *String*
