@@ -10,9 +10,6 @@ import (
 // Handler for HTTP Triggers
 func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
-	// Unstructured debug message
-	//context.Logger.Debug("Process document %s, length %d", event.GetPath(), event.GetSize())
-
 	body := string(event.GetBody())
 
 	if len(body) == 0 {
@@ -41,7 +38,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	if fields != nil {
 		// Format into JSON
-		JSON, _ := json.Marshal(fields)
+		fieldsJSON, _ := json.Marshal(fields)
 		return nuclio.Response{
 			StatusCode:  200,
 			ContentType: "application/json",
