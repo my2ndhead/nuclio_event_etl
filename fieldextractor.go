@@ -1,4 +1,4 @@
-package main
+package nuclioetl
 
 import (
 	"encoding/json"
