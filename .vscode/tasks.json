@@ -1,0 +1,27 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build fieldextractor",
+            "type": "shell",
+            "command": "nuctl build fieldextractor  -n nuclio  -p fieldextractor/fieldextractor.go --registry linuxmint.private.domain:5000",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Deploy fieldextractor",
+            "type": "shell",
+            "command": "nuctl deploy fieldextractor  -n nuclio  -p fieldextractor/fieldextractor.go --registry linuxmint.private.domain:5000",
+        },
+        {
+            "label": "Delete fieldextractor",
+            "type": "shell",
+            "command": "nuctl delete function fieldextractor  -n nuclio "
+        }
+
+    ]
+}

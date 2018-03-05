@@ -1,4 +1,4 @@
-package fieldextractor
+package main
 
 import (
 	"encoding/json"
