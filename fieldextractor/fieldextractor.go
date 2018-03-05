@@ -54,6 +54,10 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	}, nil
 }
 
+func main() {
+	//empty unused function
+}
+
 func reSubMatchMap(r *regexp.Regexp, str string) map[string]string {
 
 	match := r.FindStringSubmatch(str)
