@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/nuclio/nuclio-sdk-go"
+	"github.com/nuclio/nuclio-test-go"
 )
 
 // Handler for HTTP Triggers
@@ -22,7 +23,18 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		}, nil
 	}
 
-	myRegexPattern := string(event.GetHeader("X-Regex").([]byte))
+	var regexHeader interface{} = event.GetHeader("X-Regex")
+
+	var myRegexPattern string
+
+	if _, ok := regexHeader.([]byte); ok {
+		myRegexPattern = string(regexHeader.([]byte))
+	} else if _, ok := regexHeader.([]uint8); ok {
+		myRegexPattern = string(regexHeader.([]uint8))
+	} else if _, ok := regexHeader.(string); ok {
+		myRegexPattern = regexHeader.(string)
+	}
+
 	context.Logger.Info(myRegexPattern)
 	r, err := regexp.Compile(myRegexPattern)
 
@@ -54,10 +66,6 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	}, nil
 }
 
-func main() {
-	//empty unused function
-}
-
 func reSubMatchMap(r *regexp.Regexp, str string) map[string]string {
 
 	match := r.FindStringSubmatch(str)
@@ -73,4 +81,28 @@ func reSubMatchMap(r *regexp.Regexp, str string) map[string]string {
 
 	}
 	return nil
+}
+
+func main() {
+	// Create TestContext and specify the function name, verbose, data
+	tc, err := nutest.NewTestContext(Handler, true, nil)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create a new test event
+	testEvent := nutest.TestEvent{
+		Path:    "/",
+		Body:    []byte("Name=Kent Firstname=Clark"),
+		Headers: map[string]interface{}{"X-Regex": "(?P<field1>\\w+).*?Firstname=(?P<field2>\\w+)"},
+	}
+
+	// /nvoke the tested function with the new event and log it's output
+	resp, err := tc.Invoke(&testEvent)
+
+	// Get body as string
+	responseBody := string(resp.(nuclio.Response).Body)
+
+	// Log results
+	tc.Logger.InfoWith("Run complete", "Body", responseBody, "err", err)
 }
