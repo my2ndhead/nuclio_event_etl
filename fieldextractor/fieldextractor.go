@@ -97,7 +97,7 @@ func main() {
 		Headers: map[string]interface{}{"X-Regex": "(?P<field1>\\w+).*?Firstname=(?P<field2>\\w+)"},
 	}
 
-	// /nvoke the tested function with the new event and log it's output
+	// Invoke the tested function with the new event and log it's output
 	resp, err := tc.Invoke(&testEvent)
 
 	// Get body as string
