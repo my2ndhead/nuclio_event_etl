@@ -1,0 +1,11 @@
+{
+    "timestamp": 15000000000.500,
+    "sourcetype": "mysourcetype",
+    "host": "myhost",
+    "source": "mysource",
+    "attributes": "mysource",
+    "event": { "message": "myevent",
+               "key1": "value1",
+               "key2": "value2"
+             }
+}
