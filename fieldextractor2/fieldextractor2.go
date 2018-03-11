@@ -11,8 +11,46 @@ import (
 // Handler for HTTP Triggers
 func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
+	// *****************************************
+	// Test JSON
+	regexJSON := `
+	[
+		{ 
+		    "name": "name,firstname",
+		    "regex": "name=\"(?P<name>\\w+).*?\"\\s+firstname=\"(?P<Firstname>\\w+)\""
+		},
+		{ 
+			"name": "address",
+		    "regex": "address=\"(?P<address>.*?)\""
+		}
+	]
+	`
+	//********************************
+
+	// Define Structs
+	type RegexExtract struct {
+		Name  string
+		Regex string
+	}
+
+	type LogEventField struct {
+		FieldName  string
+		FieldValue string
+	}
+
+	type LogEvent struct {
+		Time       string          `json:"time"`
+		Sourcetype string          `json:"sourcetype"`
+		Host       string          `json:"host"`
+		Source     string          `json:"source"`
+		Event      string          `json:"event"`
+		Fields     []LogEventField `json:"fields"`
+	}
+
+	// Get Nuclio Event body
 	body := string(event.GetBody())
 
+	// Check for empty body
 	if len(body) == 0 {
 		context.Logger.Debug("Body empty")
 		return nuclio.Response{
@@ -23,22 +61,74 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		}, nil
 	}
 
-	myRegexPattern := "test"
+	var regexExtracts []RegexExtract
 
-	context.Logger.Info(myRegexPattern)
-	r, err := regexp.Compile(myRegexPattern)
+	err := json.Unmarshal([]byte(regexJSON), &regexExtracts)
 
 	if err != nil {
-		return nuclio.Response{
-			StatusCode:  400,
-			ContentType: "application/text",
-			Body:        []byte("Regex error"),
-		}, nil
+		context.Logger.Debug("Unmarshall regexExtracts:", err)
 	}
 
-	fields := reSubMatchMap(r, body)
+	for l := range regexExtracts {
+		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Name)
+		context.Logger.Debug("Regex Extract Regex: %v", regexExtracts[l].Regex)
+	}
 
-	if fields != nil {
+	var logEvent LogEvent
+
+	err = json.Unmarshal([]byte(body), &logEvent)
+
+	if err != nil {
+		context.Logger.Debug("Unmarshall LogEvent:", err)
+	}
+
+	context.Logger.Debug("Body: %s", body)
+	context.Logger.Debug("Time: %s", logEvent.Time)
+	context.Logger.Debug("Sourcetype: %s", logEvent.Sourcetype)
+	context.Logger.Debug("Host: %s", logEvent.Host)
+	context.Logger.Debug("Source: %s", logEvent.Source)
+	context.Logger.Debug("Event: %s", logEvent.Event)
+
+	//extractedFieldList := make([]LogEventField, 1)
+	logEvent.Fields = make([]LogEventField, 1)
+
+	for l := range regexExtracts {
+		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Name)
+		context.Logger.Debug("Regex Extract Regex: %v", regexExtracts[l].Regex)
+
+		r, err := regexp.Compile(regexExtracts[l].Regex)
+
+		if err != nil {
+			return nuclio.Response{
+				StatusCode:  500,
+				ContentType: "application/text",
+				Body:        []byte("Regex error"),
+			}, nil
+		}
+
+		fields := reSubMatchMap(r, logEvent.Event)
+
+		var extractedField LogEventField
+
+		if fields != nil {
+			for k, v := range fields {
+				context.Logger.Debug("Field: %s Value: %s", k, v)
+
+				extractedField = LogEventField{FieldName: k, FieldValue: v}
+				logEvent.Fields = append(logEvent.Fields, extractedField)
+				context.Logger.Debug("logEvent.Fields: %s", logEvent.Fields)
+				//extractedFieldList = append(extractedFieldList, extractedField)
+				//context.Logger.Debug("extractedFieldList: %v", extractedFieldList)
+			}
+			context.Logger.Debug("logEvent: %s", logEvent)
+			// Format into JSON
+			fieldsJSON, _ := json.Marshal(logEvent)
+			context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+		}
+
+	}
+
+	/*if fields != nil {
 		// Format into JSON
 		fieldsJSON, _ := json.Marshal(fields)
 		return nuclio.Response{
@@ -46,13 +136,20 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 			ContentType: "application/json",
 			Body:        []byte(fieldsJSON),
 		}, nil
-	}
+	}*/
+
 	// Catch non matches and return 204
 	context.Logger.Debug("Body empty")
 	return nuclio.Response{
 		StatusCode:  204,
 		ContentType: "application/text",
 		Body:        []byte("Body empty"),
+	}, nil
+
+	return nuclio.Response{
+		StatusCode:  200,
+		ContentType: "application/text",
+		Body:        []byte("Done"),
 	}, nil
 }
 
@@ -83,7 +180,14 @@ func main() {
 	// Create a new test event
 	testEvent := nutest.TestEvent{
 		Path: "/",
-		Body: []byte("Name=Kent Firstname=Clark Address=\"Test\""),
+		Body: []byte(`
+		{
+			"time": "15000000000.500",
+			"sourcetype": "mysourcetype",
+			"host": "myhost",
+			"source": "mysource",
+			"event": "name=\"Kent\" firstname=\"Clark\" address=\"101 mainstreet, New York\""
+		}`),
 	}
 
 	// Invoke the tested function with the new event and log it's output

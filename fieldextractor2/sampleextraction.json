@@ -1,4 +1,4 @@
 { 
     "name,firstname": "(?P<name>\\w+).*?firstname=(?P<Firstname>\\w+)",
     "address": "Address=(?P<address>.*?,"
- }
+}
