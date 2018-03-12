@@ -2,5 +2,11 @@
   "sourcetype": "mysourcetype",
   "host": "myhost",
   "source": "mysource",
-  "event": { "message": "myevent", "key1": "value1" }
-  }
+  "event": "name=\"Kent\" firstname=\"Clark\" address=\"101 mainstreet, New York\"",
+  "fields": 
+    {
+      "name":"Kent", 
+      "firstname":"Clark", 
+      "address": "\"101 mainstreet, New York\""
+    }
+ }

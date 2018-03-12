@@ -33,18 +33,19 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		Regex string
 	}
 
-	type LogEventField struct {
+	/*type LogEventField struct {
 		FieldName  string
 		FieldValue string
-	}
+	}*/
 
 	type LogEvent struct {
-		Time       string          `json:"time"`
-		Sourcetype string          `json:"sourcetype"`
-		Host       string          `json:"host"`
-		Source     string          `json:"source"`
-		Event      string          `json:"event"`
-		Fields     []LogEventField `json:"fields"`
+		Time       string `json:"time"`
+		Sourcetype string `json:"sourcetype"`
+		Host       string `json:"host"`
+		Source     string `json:"source"`
+		Event      string `json:"event"`
+		//	Fields     []LogEventField `json:"fields"`
+		Fields map[string]string `json:"fields"`
 	}
 
 	// Get Nuclio Event body
@@ -89,8 +90,9 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	context.Logger.Debug("Source: %s", logEvent.Source)
 	context.Logger.Debug("Event: %s", logEvent.Event)
 
-	//extractedFieldList := make([]LogEventField, 1)
-	logEvent.Fields = make([]LogEventField, 1)
+	//logEvent.Fields = make([]LogEventField, 1)
+
+	logEvent.Fields = map[string]string{}
 
 	for l := range regexExtracts {
 		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Name)
@@ -108,35 +110,27 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 		fields := reSubMatchMap(r, logEvent.Event)
 
-		var extractedField LogEventField
+		//var extractedField LogEventField
 
 		if fields != nil {
-			for k, v := range fields {
-				context.Logger.Debug("Field: %s Value: %s", k, v)
-
-				extractedField = LogEventField{FieldName: k, FieldValue: v}
-				logEvent.Fields = append(logEvent.Fields, extractedField)
+			for key, value := range fields {
+				context.Logger.Debug("Field: %s Value: %s", key, value)
+				logEvent.Fields[key] = value
 				context.Logger.Debug("logEvent.Fields: %s", logEvent.Fields)
-				//extractedFieldList = append(extractedFieldList, extractedField)
-				//context.Logger.Debug("extractedFieldList: %v", extractedFieldList)
 			}
 			context.Logger.Debug("logEvent: %s", logEvent)
 			// Format into JSON
 			fieldsJSON, _ := json.Marshal(logEvent)
 			context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+
+			return nuclio.Response{
+				StatusCode:  200,
+				ContentType: "application/json",
+				Body:        []byte(fieldsJSON),
+			}, nil
 		}
 
 	}
-
-	/*if fields != nil {
-		// Format into JSON
-		fieldsJSON, _ := json.Marshal(fields)
-		return nuclio.Response{
-			StatusCode:  200,
-			ContentType: "application/json",
-			Body:        []byte(fieldsJSON),
-		}, nil
-	}*/
 
 	// Catch non matches and return 204
 	context.Logger.Debug("Body empty")
