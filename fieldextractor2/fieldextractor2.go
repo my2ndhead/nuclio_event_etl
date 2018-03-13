@@ -1,3 +1,29 @@
+// @nuclio.configure
+//
+// function.yaml:
+//   apiVersion: "nuclio.io/v1"
+//   kind: "Function"
+//   spec:
+//     runtime: "golang"
+//     triggers:
+//       http:
+//         maxWorkers: 8
+//         kind: http
+//         attributes:
+//           ingresses:
+//             first:
+//               paths:
+//               - /first/path
+//               - /second/path
+//             second:
+//               host: my.host.com
+//               paths:
+//               - /first/from/host
+//		dataBindings:
+//		  db0:
+//		    class: v3io
+//	        url: http://10.90.1.171:8081
+
 package main
 
 import (
@@ -8,46 +34,41 @@ import (
 	"github.com/nuclio/nuclio-test-go"
 )
 
+//********************************
+
+// RegexExtract Struct
+type RegexExtract struct {
+	Class string
+	Regex string
+}
+
+// LogEvent Struct
+type LogEvent struct {
+	Time       string            `json:"time"`
+	Sourcetype string            `json:"sourcetype"`
+	Host       string            `json:"host"`
+	Source     string            `json:"source"`
+	Event      string            `json:"event"`
+	Fields     map[string]string `json:"fields"`
+}
+
 // Handler for HTTP Triggers
 func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	// *****************************************
-	// Test JSON
+	// Test JSON, needs to get rewritten to pull from v3io
 	regexJSON := `
 	[
 		{ 
-		    "name": "name,firstname",
-		    "regex": "name=\"(?P<name>\\w+).*?\"\\s+firstname=\"(?P<Firstname>\\w+)\""
+		    "class": "name,firstname",
+		    "regex": "name=\"(?P<name>\\w+).*?\"\\s+firstname=\"(?P<firstname>\\w+)\""
 		},
 		{ 
-			"name": "address",
+			"class": "address",
 		    "regex": "address=\"(?P<address>.*?)\""
 		}
 	]
 	`
-	//********************************
-
-	// Define Structs
-	type RegexExtract struct {
-		Name  string
-		Regex string
-	}
-
-	/*type LogEventField struct {
-		FieldName  string
-		FieldValue string
-	}*/
-
-	type LogEvent struct {
-		Time       string `json:"time"`
-		Sourcetype string `json:"sourcetype"`
-		Host       string `json:"host"`
-		Source     string `json:"source"`
-		Event      string `json:"event"`
-		//	Fields     []LogEventField `json:"fields"`
-		Fields map[string]string `json:"fields"`
-	}
-
 	// Get Nuclio Event body
 	body := string(event.GetBody())
 
@@ -62,27 +83,33 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		}, nil
 	}
 
+	// Setting up RegexExtracts
 	var regexExtracts []RegexExtract
 
 	err := json.Unmarshal([]byte(regexJSON), &regexExtracts)
 
+	// Catchin regex unmarshalling errors
 	if err != nil {
 		context.Logger.Debug("Unmarshall regexExtracts:", err)
 	}
 
+	// Printing out Regexes
 	for l := range regexExtracts {
-		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Name)
+		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Class)
 		context.Logger.Debug("Regex Extract Regex: %v", regexExtracts[l].Regex)
 	}
 
+	// Unmarshalling LogEvent
 	var logEvent LogEvent
 
 	err = json.Unmarshal([]byte(body), &logEvent)
 
+	// Catching LogEvent unmarshalling errors
 	if err != nil {
 		context.Logger.Debug("Unmarshall LogEvent:", err)
 	}
 
+	// Debug logging LogEvent content
 	context.Logger.Debug("Body: %s", body)
 	context.Logger.Debug("Time: %s", logEvent.Time)
 	context.Logger.Debug("Sourcetype: %s", logEvent.Sourcetype)
@@ -90,16 +117,18 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	context.Logger.Debug("Source: %s", logEvent.Source)
 	context.Logger.Debug("Event: %s", logEvent.Event)
 
-	//logEvent.Fields = make([]LogEventField, 1)
-
+	// Setting up field key/value map
 	logEvent.Fields = map[string]string{}
 
+	// Running regexes over raw event
 	for l := range regexExtracts {
-		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Name)
+		context.Logger.Debug("Regex Extract Name: %v", regexExtracts[l].Class)
 		context.Logger.Debug("Regex Extract Regex: %v", regexExtracts[l].Regex)
 
+		// Compuling regex
 		r, err := regexp.Compile(regexExtracts[l].Regex)
 
+		// Catchin regex errors
 		if err != nil {
 			return nuclio.Response{
 				StatusCode:  500,
@@ -108,6 +137,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 			}, nil
 		}
 
+		// Running Regex over
 		fields := reSubMatchMap(r, logEvent.Event)
 
 		//var extractedField LogEventField
@@ -165,8 +195,11 @@ func reSubMatchMap(r *regexp.Regexp, str string) map[string]string {
 }
 
 func main() {
+
+	data := nutest.DataBind{Name: "db0", Url: "http://10.90.1.171:8081", Container: "splunk"}
+
 	// Create TestContext and specify the function name, verbose, data
-	tc, err := nutest.NewTestContext(Handler, true, nil)
+	tc, err := nutest.NewTestContext(Handler, true, &data)
 	if err != nil {
 		panic(err)
 	}
