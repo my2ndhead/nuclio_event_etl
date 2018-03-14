@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"net"
+	"os"
 	"regexp"
 	"time"
 )
@@ -33,6 +34,9 @@ func handleConnection(conn net.Conn) {
 
 	var event string
 
+	f, _ := os.Create("/tmp/event")
+	defer f.Close()
+
 	// Loop over Lines
 	for scanner.Scan() {
 
@@ -41,9 +45,9 @@ func handleConnection(conn net.Conn) {
 		if match != nil { // New event starts
 			if event != "" {
 				// If we have already collected an event, we should persist it somwhere
-				println("Event:\n", event)
-				// Here we clear the initiate a new event
-				event = ""
+				print("\nEvent:\n", event)
+				f.WriteString(event)
+				f.Sync()
 			}
 			// Store first line of new event
 			event = scanner.Text()
@@ -62,14 +66,32 @@ func handleConnection(conn net.Conn) {
 
 	}
 	// After the timeout, we should also persist
-	println("Event:\n", event)
+	print("\nEvent:\n", event)
+	f.WriteString(event)
+	f.Sync()
 
 }
 
 func main() {
 
+	// Make Bindadress configurable
+	bindAddr := os.Getenv("TCPINPUT_BINDADDR")
+
+	// Make Port configurable
+	port := os.Getenv("TCPINPUT_PORT")
+
+	// Define default Bindadress
+	if bindAddr == "" {
+		bindAddr = "0.0.0.0"
+	}
+
+	//Define default port
+	if port == "" {
+		port = "8888"
+	}
+
 	// Create listener
-	listener, err := net.Listen("tcp", "0.0.0.0:8888")
+	listener, err := net.Listen("tcp", bindAddr+":"+port)
 	if err != nil {
 		fmt.Println(err)
 		return
