@@ -29,8 +29,11 @@ func handleConnection(conn net.Conn) {
 	// Create linescanner
 	scanner := bufio.NewScanner(bufReader)
 
+	// Currently statical regexPattern. Should be set automatically according to sourcetype
+	regexPattern := `^\d{4}-\d{2}-\d{2}`
+
 	// Regex do find beginning of new event, usefull for multiline events
-	re := regexp.MustCompile(`^\d{4}-\d{2}-\d{2}`)
+	re := regexp.MustCompile(regexPattern)
 
 	var event string
 
