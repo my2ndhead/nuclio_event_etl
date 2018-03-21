@@ -1,0 +1,22 @@
+apiVersion: "nuclio.io/v1"
+   kind: "Function"
+   spec:
+     runtime: "golang"
+     triggers:
+       http:
+         maxWorkers: 8
+         kind: http
+         attributes:
+           ingresses:
+             first:
+               paths:
+               - /first/path
+               - /second/path
+             second:
+               host: my.host.com
+               paths:
+               - /first/from/host
+		dataBindings:
+		  db0:
+		    class: v3io
+	        url: http://10.90.1.171:8081
