@@ -63,6 +63,13 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	// Get Nuclio Event body
 	body := string(event.GetBody())
 
+	// Get Splunk Event Optimizer setting from header
+	var optimizeEvent = "false"
+
+	if event.GetHeader("Optimize-Event") != nil {
+		optimizeEvent = event.GetHeader("Optimize-Event").(string)
+	}
+
 	// Check for empty body
 	if len(body) == 0 {
 		context.Logger.Debug("Body empty")
@@ -104,7 +111,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	// Running regexes over raw event
 
-	var eventWithFields = getEventWithFields(regexExtracts, logEvent, context)
+	var eventWithFields = getEventWithFields(regexExtracts, logEvent, optimizeEvent, context)
 
 	if eventWithFields != nil {
 		return nuclio.Response{
@@ -193,8 +200,9 @@ func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuc
 
 }
 
-func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, context *nuclio.Context) []byte {
+func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, optimizeEvent string, context *nuclio.Context) []byte {
 	var fieldsJSON []byte
+	var fields map[string]string
 
 	for _, regexExtract := range regexExtracts {
 
@@ -211,22 +219,43 @@ func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, context
 		}
 
 		// Running Regex over
-		fields := doRegexMatch(r, logEvent.Event)
+		fields = doRegexMatch(r, logEvent.Event)
 		context.Logger.Debug("Fields: %s", fields)
 		//var extractedField LogEventField
 
 		if fields != nil {
 			for key, value := range fields {
-				context.Logger.Debug("Field: %s Value: %s", key, value)
 				logEvent.Fields[key] = value
-				context.Logger.Debug("logEvent.Fields: %s", logEvent.Fields)
 			}
+
 			context.Logger.Debug("logEvent: %s", logEvent)
-			// Format into JSON
-			fieldsJSON, _ = json.Marshal(logEvent)
-			context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+
 		}
+
 	}
+
+	if optimizeEvent == "true" {
+		logEvent.Event = ""
+		for _, value := range logEvent.Fields {
+			logEvent.Event = logEvent.Event + " " + value
+		}
+
+		segmentersRegex := `[.,:;]`
+
+		r, err := regexp.Compile(segmentersRegex)
+
+		// Catchin regex errors
+		if err != nil {
+			context.Logger.Error("Regex Error:", segmentersRegex)
+			return nil
+		}
+
+		logEvent.Event = r.ReplaceAllString(logEvent.Event, "")
+	}
+
+	// Format into JSON
+	fieldsJSON, _ = json.Marshal(logEvent)
+	context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
 
 	return fieldsJSON
 
@@ -244,7 +273,8 @@ func main() {
 
 	// Create a new test event
 	testEvent := nutest.TestEvent{
-		Path: "/",
+		Path:    "/",
+		Headers: map[string]interface{}{"Optimize-Event": "true"},
 		Body: []byte(`
 		{
 			"time": "15000000000.500",
