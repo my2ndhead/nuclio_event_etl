@@ -95,7 +95,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	logEvent.Fields = map[string]string{}
 
 	// Define sourcetype (currently static)
-	var sourcetype = "mysourcetype"
+	sourcetype := logEvent.Sourcetype
 
 	// Get Regex Extracts for sourceype
 	var regexExtracts = getRegexExtracts(sourcetype, container, context)
@@ -122,7 +122,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 }
 
-func reSubMatchMap(r *regexp.Regexp, str string) map[string]string {
+func doRegexMatch(r *regexp.Regexp, str string) map[string]string {
 
 	match := r.FindStringSubmatch(str)
 
@@ -210,7 +210,7 @@ func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, context
 		}
 
 		// Running Regex over
-		fields := reSubMatchMap(r, logEvent.Event)
+		fields := doRegexMatch(r, logEvent.Event)
 		context.Logger.Debug("Fields: %s", fields)
 		//var extractedField LogEventField
 
