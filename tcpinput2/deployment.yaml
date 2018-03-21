@@ -19,7 +19,7 @@ spec:
     spec:
       containers:
       - name: tcpinput2
-        image: my2ndhead.com/k8s-skaffold/tcpinput2:7d5234b24d324c3f976b6f03362336785d2cc7200df4c48e9019edf9b7068518
+        image: my2ndhead.com/k8s-skaffold/tcpinput2:7d2889d792a372c894a8cb00b21bbdd5250fa330885634ee86cd6ed9e0cdb36f
         ports:
           - name: tcpinput2
             containerPort: 12000

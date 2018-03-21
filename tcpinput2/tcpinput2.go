@@ -70,13 +70,6 @@ func handleConnection(conn net.Conn) {
 			// Running Regex over
 			fields = doRegexMatch(r, event)
 
-			/*if fields != nil {
-				for key, value := range fields {
-					print("\nKey:\n", key)
-					print("\nValue:\n", value)
-				}
-			}*/
-
 			logEvent.Time = fields["time"]
 			logEvent.Meta = fields["meta"]
 			logEvent.Host = fields["host"]
@@ -91,7 +84,7 @@ func handleConnection(conn net.Conn) {
 
 			fmt.Println("Event:", bla)
 
-			url := "http://fieldextractor2.lcsystems:32327"
+			url := "http://fieldextractor2.lcsystems:8080"
 
 			req, err := http.NewRequest("POST", url, bytes.NewBuffer(logEventJSON))
 			req.Header.Set("X-Custom-Header", "myvalue")
