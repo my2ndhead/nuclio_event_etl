@@ -12,10 +12,18 @@ spec:
       app: tcpinput2
   template:
     metadata:
+      name: tcpinput2
+      namespace: lcsystems
       labels:
         app: tcpinput2
     spec:
       containers:
       - name: tcpinput2
-        image: tcpinput2
-    
+        image: my2ndhead.com/k8s-skaffold/tcpinput2:7d5234b24d324c3f976b6f03362336785d2cc7200df4c48e9019edf9b7068518
+        ports:
+          - name: tcpinput2
+            containerPort: 12000
+            hostPort: 12000
+            nodePort: 12000
+            protocol: TCP
+      

@@ -41,7 +41,14 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	var optimizeEvent = "false"
 
 	if event.GetHeader("Optimize-Event") != nil {
-		optimizeEvent = event.GetHeader("Optimize-Event").(string)
+		// Header types differ between nuclio and nuclio-test invocations
+		if _, ok := event.GetHeader("Optimize-Event").([]byte); ok {
+			optimizeEvent = string(event.GetHeader("Optimize-Event").([]byte))
+		} else if _, ok := event.GetHeader("Optimize-Event").([]uint8); ok {
+			optimizeEvent = string(event.GetHeader("Optimize-Event").([]uint8))
+		} else if _, ok := event.GetHeader("Optimize-Event").(string); ok {
+			optimizeEvent = event.GetHeader("Optimize-Event").(string)
+		}
 	}
 
 	// Check for empty body
@@ -66,14 +73,6 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		context.Logger.Debug("Unmarshall LogEvent:", err)
 	}
 
-	// Debug logging LogEvent content
-	/*context.Logger.Debug("Body: %s", body)
-	context.Logger.Debug("Time: %s", logEvent.Time)
-	context.Logger.Debug("Sourcetype: %s", logEvent.Sourcetype)
-	context.Logger.Debug("Host: %s", logEvent.Host)
-	context.Logger.Debug("Source: %s", logEvent.Source)
-	context.Logger.Debug("Event: %s", logEvent.Event)*/
-
 	// Setting up field key/value map
 	logEvent.Fields = map[string]string{}
 
@@ -84,10 +83,8 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	var regexExtracts = getRegexExtracts(sourcetype, container, context)
 
 	// Running regexes over raw event
-
-	var eventWithFields = getEventWithFields(regexExtracts, logEvent, optimizeEvent, context)
-
-	if eventWithFields != nil {
+	if regexExtracts != nil {
+		eventWithFields := getEventWithFields(regexExtracts, logEvent, optimizeEvent, context)
 		return nuclio.Response{
 			StatusCode:  200,
 			ContentType: "application/json",
@@ -95,12 +92,12 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		}, nil
 	}
 
-	// Catch non matches and return 204
-	context.Logger.Debug("Body empty")
+	// Return logEvent if no fields extracted
+	logEventJSON, _ := json.Marshal(&logEvent)
 	return nuclio.Response{
-		StatusCode:  204,
-		ContentType: "application/text",
-		Body:        []byte("Body empty"),
+		StatusCode:  200,
+		ContentType: "application/json",
+		Body:        logEventJSON,
 	}, nil
 
 }
@@ -139,17 +136,19 @@ func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuc
 	for last == false {
 
 		GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
-			Path:           "/conf/" + sourcetype + "/extract/",
+			Path:           "conf/" + sourcetype + "/extract/",
 			AttributeNames: []string{"*"},
 			Limit:          1000,
 			Marker:         marker})
 
+		// Return nil if no regex found for sourcetype
 		if GetItemserr != nil {
-			context.Logger.ErrorWith("Get Item *err*", "err", GetItemserr)
-		} else {
-			GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
-			context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
+			context.Logger.WarnWith("Get Item *err*", "err", GetItemserr)
+			return nil
 		}
+
+		GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
+		context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
 
 		items := GetItemsResponse.Output.(*v3io.GetItemsOutput).Items
 
@@ -252,7 +251,7 @@ func main() {
 		Body: []byte(`
 		{
 			"time": "15000000000.500",
-			"sourcetype": "mysourcetype",
+			"sourcetype": "mysourcetype1",
 			"host": "myhost",
 			"source": "mysource",
 			"event": "name=\"Kent\" firstname=\"Clark\" address=\"101 mainstreet, New York\""

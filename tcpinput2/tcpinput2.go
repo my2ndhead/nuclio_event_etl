@@ -2,9 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"regexp"
 	"time"
@@ -87,6 +90,25 @@ func handleConnection(conn net.Conn) {
 			bla := string(logEventJSON)
 
 			fmt.Println("Event:", bla)
+
+			url := "http://fieldextractor2.lcsystems:32327"
+
+			req, err := http.NewRequest("POST", url, bytes.NewBuffer(logEventJSON))
+			req.Header.Set("X-Custom-Header", "myvalue")
+			req.Header.Set("Content-Type", "application/json")
+
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			if err != nil {
+				panic(err)
+			}
+			defer resp.Body.Close()
+
+			fmt.Println("response Status:", resp.Status)
+			fmt.Println("response Headers:", resp.Header)
+			body, _ := ioutil.ReadAll(resp.Body)
+			fmt.Println("response Body:", string(body))
+
 			//print("\nErr:\n", err)
 
 			//f.WriteString(fields)
