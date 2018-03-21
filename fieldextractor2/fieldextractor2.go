@@ -46,9 +46,11 @@ type RegexExtract struct {
 // LogEvent Struct
 type LogEvent struct {
 	Time       string            `json:"time"`
-	Sourcetype string            `json:"sourcetype"`
+	Meta       string            `json:"meta"`
 	Host       string            `json:"host"`
+	Sourcetype string            `json:"sourcetype"`
 	Source     string            `json:"source"`
+	Index      string            `json:"index"`
 	Event      string            `json:"event"`
 	Fields     map[string]string `json:"fields"`
 }
@@ -102,13 +104,13 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	// Running regexes over raw event
 
-	var fieldsJSON = getEventWithFields(regexExtracts, logEvent, context)
+	var eventWithFields = getEventWithFields(regexExtracts, logEvent, context)
 
-	if fieldsJSON != nil {
+	if eventWithFields != nil {
 		return nuclio.Response{
 			StatusCode:  200,
 			ContentType: "application/json",
-			Body:        []byte(fieldsJSON),
+			Body:        []byte(eventWithFields),
 		}, nil
 	}
 
@@ -200,7 +202,6 @@ func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, context
 		context.Logger.Debug("Regex Extract Regex: %v", regexExtract.Regex)
 
 		// Compiling regex
-		//r, err := regexp.Compile(regexExtract.Regex)
 		r, err := regexp.Compile(regexExtract.Regex)
 
 		// Catchin regex errors
