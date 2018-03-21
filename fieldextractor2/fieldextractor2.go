@@ -199,7 +199,7 @@ func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, context
 		context.Logger.Debug("Regex Extract Name: %v", regexExtract.Class)
 		context.Logger.Debug("Regex Extract Regex: %v", regexExtract.Regex)
 
-		// Compuling regex
+		// Compiling regex
 		//r, err := regexp.Compile(regexExtract.Regex)
 		r, err := regexp.Compile(regexExtract.Regex)
 

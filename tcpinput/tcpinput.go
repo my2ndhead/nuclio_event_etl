@@ -90,7 +90,7 @@ func main() {
 
 	//Define default port
 	if port == "" {
-		port = "8888"
+		port = "12000"
 	}
 
 	// Create listener
