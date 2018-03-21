@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcpinput2
+  namespace: lcsystems
+  labels:
+    app: tcpinput2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tcpinput2
+  template:
+    metadata:
+      labels:
+        app: tcpinput2
+    spec:
+      containers:
+      - name: tcpinput2
+        image: tcpinput2
+    
