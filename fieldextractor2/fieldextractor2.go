@@ -58,55 +58,6 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	container := context.DataBinding["db0"].(*v3io.Container)
 
-	// Set loop variable to false first
-	var last = false
-
-	// Set marker initially to empty
-	var marker string
-
-	// Define sourcetype (currently static)
-	var sourcetype = "mysourcetype"
-
-	// Define slice for regexExtracts
-	var regexExtracts = make([]RegexExtract, 0)
-
-	// Loop over Regex Classes
-	for last == false {
-
-		GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
-			Path:           "/conf/" + sourcetype + "/extract/",
-			AttributeNames: []string{"*"},
-			Limit:          1000,
-			Marker:         marker})
-
-		if GetItemserr != nil {
-			context.Logger.ErrorWith("Get Item *err*", "err", GetItemserr)
-		} else {
-			GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
-			context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
-		}
-
-		items := GetItemsResponse.Output.(*v3io.GetItemsOutput).Items
-
-		for item := range items {
-
-			class := items[item]["class"]
-			context.Logger.DebugWith("items", "class", class)
-
-			regex := items[item]["regex"]
-			context.Logger.DebugWith("items", "regex", regex)
-
-			regexExtracts = append(regexExtracts, RegexExtract{class.(string), regex.(string)})
-
-		}
-
-		marker = GetItemsResponse.Output.(*v3io.GetItemsOutput).NextMarker
-		last = GetItemsResponse.Output.(*v3io.GetItemsOutput).Last
-
-	}
-
-	context.Logger.DebugWith("RegexExtracts", "Array", regexExtracts)
-
 	// Get Nuclio Event body
 	body := string(event.GetBody())
 
@@ -121,8 +72,9 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		}, nil
 	}
 
-	// Unmarshalling LogEvent
 	var logEvent LogEvent
+
+	// Unmarshalling LogEvent
 
 	err := json.Unmarshal([]byte(body), &logEvent)
 
@@ -132,62 +84,25 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	}
 
 	// Debug logging LogEvent content
-	context.Logger.Debug("Body: %s", body)
+	/*context.Logger.Debug("Body: %s", body)
 	context.Logger.Debug("Time: %s", logEvent.Time)
 	context.Logger.Debug("Sourcetype: %s", logEvent.Sourcetype)
 	context.Logger.Debug("Host: %s", logEvent.Host)
 	context.Logger.Debug("Source: %s", logEvent.Source)
-	context.Logger.Debug("Event: %s", logEvent.Event)
+	context.Logger.Debug("Event: %s", logEvent.Event)*/
 
 	// Setting up field key/value map
 	logEvent.Fields = map[string]string{}
 
+	// Define sourcetype (currently static)
+	var sourcetype = "mysourcetype"
+
+	// Get Regex Extracts for sourceype
+	var regexExtracts = getRegexExtracts(sourcetype, container, context)
+
 	// Running regexes over raw event
-	context.Logger.Debug("Regex Extract Count: %v", len(regexExtracts))
 
-	for index, regexExtract := range regexExtracts {
-		context.Logger.Debug("Index: %v", index)
-		context.Logger.Debug("regexExtract: %v", regexExtract)
-
-	}
-
-	var fieldsJSON []byte
-
-	for index, regexExtract := range regexExtracts {
-		context.Logger.Debug("Index: %v", index)
-
-		context.Logger.Debug("Regex Extract Name: %v", regexExtract.Class)
-		context.Logger.Debug("Regex Extract Regex: %v", regexExtract.Regex)
-
-		// Compuling regex
-		r, err := regexp.Compile(regexExtract.Regex)
-
-		// Catchin regex errors
-		if err != nil {
-			return nuclio.Response{
-				StatusCode:  500,
-				ContentType: "application/text",
-				Body:        []byte("Regex error"),
-			}, nil
-		}
-
-		// Running Regex over
-		fields := reSubMatchMap(r, logEvent.Event)
-		context.Logger.Debug("*************Fields: %s", fields)
-		//var extractedField LogEventField
-
-		if fields != nil {
-			for key, value := range fields {
-				context.Logger.Debug("Field: %s Value: %s", key, value)
-				logEvent.Fields[key] = value
-				context.Logger.Debug("logEvent.Fields: %s", logEvent.Fields)
-			}
-			context.Logger.Debug("logEvent: %s", logEvent)
-			// Format into JSON
-			fieldsJSON, _ = json.Marshal(logEvent)
-			context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
-		}
-	}
+	var fieldsJSON = getEventWithFields(regexExtracts, logEvent, context)
 
 	if fieldsJSON != nil {
 		return nuclio.Response{
@@ -222,6 +137,98 @@ func reSubMatchMap(r *regexp.Regexp, str string) map[string]string {
 
 	}
 	return nil
+}
+
+func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuclio.Context) []RegexExtract {
+
+	// Set loop variable to false first
+	var last = false
+
+	// Set marker initially to empty
+	var marker string
+
+	// Define slice for regexExtracts
+
+	var regexExtracts = make([]RegexExtract, 0)
+
+	// Loop over Regex Classes
+
+	for last == false {
+
+		GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
+			Path:           "/conf/" + sourcetype + "/extract/",
+			AttributeNames: []string{"*"},
+			Limit:          1000,
+			Marker:         marker})
+
+		if GetItemserr != nil {
+			context.Logger.ErrorWith("Get Item *err*", "err", GetItemserr)
+		} else {
+			GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
+			context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
+		}
+
+		items := GetItemsResponse.Output.(*v3io.GetItemsOutput).Items
+
+		for item := range items {
+
+			class := items[item]["class"]
+			context.Logger.DebugWith("items", "class", class)
+
+			regex := items[item]["regex"]
+			context.Logger.DebugWith("items", "regex", regex)
+
+			regexExtracts = append(regexExtracts, RegexExtract{class.(string), regex.(string)})
+
+		}
+
+		marker = GetItemsResponse.Output.(*v3io.GetItemsOutput).NextMarker
+		last = GetItemsResponse.Output.(*v3io.GetItemsOutput).Last
+
+	}
+
+	return regexExtracts
+
+}
+
+func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, context *nuclio.Context) []byte {
+	var fieldsJSON []byte
+
+	for _, regexExtract := range regexExtracts {
+
+		context.Logger.Debug("Regex Extract Name: %v", regexExtract.Class)
+		context.Logger.Debug("Regex Extract Regex: %v", regexExtract.Regex)
+
+		// Compuling regex
+		//r, err := regexp.Compile(regexExtract.Regex)
+		r, err := regexp.Compile(regexExtract.Regex)
+
+		// Catchin regex errors
+		if err != nil {
+			context.Logger.Error("Regex Error:", regexExtract.Regex)
+			return nil
+		}
+
+		// Running Regex over
+		fields := reSubMatchMap(r, logEvent.Event)
+		context.Logger.Debug("Fields: %s", fields)
+		//var extractedField LogEventField
+
+		if fields != nil {
+			for key, value := range fields {
+				context.Logger.Debug("Field: %s Value: %s", key, value)
+				logEvent.Fields[key] = value
+				context.Logger.Debug("logEvent.Fields: %s", logEvent.Fields)
+			}
+			context.Logger.Debug("logEvent: %s", logEvent)
+			// Format into JSON
+			fieldsJSON, _ = json.Marshal(logEvent)
+			context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+		}
+	}
+
+	return fieldsJSON
+
 }
 
 func main() {
