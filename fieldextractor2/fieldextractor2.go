@@ -38,16 +38,16 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	body := string(event.GetBody())
 
 	// Get Splunk Event Optimizer setting from header
-	var optimizeEvent = "false"
+	var eventOutputMode = "normal"
 
-	if event.GetHeader("Optimize-Event") != nil {
+	if event.GetHeader("Event-Output-Mode") != nil {
 		// Header types differ between nuclio and nuclio-test invocations
-		if _, ok := event.GetHeader("Optimize-Event").([]byte); ok {
-			optimizeEvent = string(event.GetHeader("Optimize-Event").([]byte))
-		} else if _, ok := event.GetHeader("Optimize-Event").([]uint8); ok {
-			optimizeEvent = string(event.GetHeader("Optimize-Event").([]uint8))
-		} else if _, ok := event.GetHeader("Optimize-Event").(string); ok {
-			optimizeEvent = event.GetHeader("Optimize-Event").(string)
+		if _, ok := event.GetHeader("Event-Output-Mode").([]byte); ok {
+			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]byte))
+		} else if _, ok := event.GetHeader("Event-Output-Mode").([]uint8); ok {
+			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]uint8))
+		} else if _, ok := event.GetHeader("Event-Output-Mode").(string); ok {
+			eventOutputMode = event.GetHeader("Event-Output-Mode").(string)
 		}
 	}
 
@@ -78,17 +78,29 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	// Define sourcetype (currently static)
 	sourcetype := logEvent.Sourcetype
+	context.Logger.DebugWith("logEvent", "sourcetype", sourcetype)
 
 	// Get Regex Extracts for sourceype
 	var regexExtracts = getRegexExtracts(sourcetype, container, context)
 
 	// Running regexes over raw event
 	if regexExtracts != nil {
-		eventWithFields := getEventWithFields(regexExtracts, logEvent, optimizeEvent, context)
+
+		// Fetching fields from event
+		eventFields := getEventFields(regexExtracts, logEvent, eventOutputMode, context)
+
+		// Fetching internal fields from meta element
+		metaFields := getMetaFields(eventFields, context)
+
+		// Adding subsecond resolution to time element
+		metaFields.Time = metaFields.Time + metaFields.Fields["_subsecond"]
+		fieldsJSON, _ := json.Marshal(metaFields)
+		context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+
 		return nuclio.Response{
 			StatusCode:  200,
 			ContentType: "application/json",
-			Body:        []byte(eventWithFields),
+			Body:        []byte(fieldsJSON),
 		}, nil
 	}
 
@@ -173,28 +185,69 @@ func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuc
 
 }
 
-func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, optimizeEvent string, context *nuclio.Context) []byte {
-	var fieldsJSON []byte
+// Function to add meta fields to field list
+func getMetaFields(logEvent LogEvent, context *nuclio.Context) LogEvent {
+
 	var fields map[string]string
 
-	for _, regexExtract := range regexExtracts {
+	// Define regexes for internal fields
+	regexExtracts := make([]RegexExtract, 0)
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "_subsecond", Regex: "_subsecond::(?P<_subsecond>\\S+)"})
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_second", Regex: "date_second::(?P<date_second>\\d+)"})
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_hour", Regex: "date_hour::(?P<date_hour>\\d+)"})
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_year", Regex: "date_year::(?P<date_second>\\d+)"})
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_month", Regex: "date_month::(?P<date_month>\\w+)"})
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_wday", Regex: "date_wday::(?P<date_wday>\\w+)"})
+	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_zone", Regex: "date_zone::(?P<date_zone>\\w+)"})
 
-		context.Logger.Debug("Regex Extract Name: %v", regexExtract.Class)
-		context.Logger.Debug("Regex Extract Regex: %v", regexExtract.Regex)
+	for _, regexExtract := range regexExtracts {
+		context.Logger.Debug("Meta Regex Extract Name: %v", regexExtract.Class)
+		context.Logger.Debug("Meta Regex Extract Regex: %v", regexExtract.Regex)
 
 		// Compiling regex
 		r, err := regexp.Compile(regexExtract.Regex)
 
-		// Catchin regex errors
+		// Catching regex errors
 		if err != nil {
 			context.Logger.Error("Regex Error:", regexExtract.Regex)
-			return nil
+		}
+
+		fields = doRegexMatch(r, logEvent.Meta)
+		context.Logger.Debug("Fields: %s", fields)
+
+		if fields != nil {
+			for key, value := range fields {
+				logEvent.Fields[key] = value
+			}
+
+			context.Logger.Debug("logEvent: %s", logEvent)
+		}
+	}
+	return logEvent
+
+}
+
+// Function to add event fields to field list
+func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutputMode string, context *nuclio.Context) LogEvent {
+
+	var fields map[string]string
+
+	for _, regexExtract := range regexExtracts {
+
+		context.Logger.Debug("Event Regex Extract Name: %v", regexExtract.Class)
+		context.Logger.Debug("Event Regex Extract Regex: %v", regexExtract.Regex)
+
+		// Compiling regex
+		r, err := regexp.Compile(regexExtract.Regex)
+
+		// Catching regex errors
+		if err != nil {
+			context.Logger.Error("Regex Error:", regexExtract.Regex)
 		}
 
 		// Running Regex over
 		fields = doRegexMatch(r, logEvent.Event)
 		context.Logger.Debug("Fields: %s", fields)
-		//var extractedField LogEventField
 
 		if fields != nil {
 			for key, value := range fields {
@@ -207,10 +260,12 @@ func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, optimiz
 
 	}
 
-	if optimizeEvent == "true" {
+	// Output only segments, drop segmenter characters
+
+	if eventOutputMode == "minimal" {
 		logEvent.Event = ""
 		for _, value := range logEvent.Fields {
-			logEvent.Event = logEvent.Event + " " + value
+			logEvent.Event = value + " " + logEvent.Event
 		}
 
 		segmentersRegex := `[.,:;]`
@@ -220,18 +275,22 @@ func getEventWithFields(regexExtracts []RegexExtract, logEvent LogEvent, optimiz
 		// Catchin regex errors
 		if err != nil {
 			context.Logger.Error("Regex Error:", segmentersRegex)
-			return nil
+			//return nil
 		}
 
 		logEvent.Event = r.ReplaceAllString(logEvent.Event, "")
 	}
 
-	// Format into JSON
-	fieldsJSON, _ = json.Marshal(logEvent)
-	context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+	// Output as key="value"
 
-	return fieldsJSON
+	if eventOutputMode == "kv" {
+		logEvent.Event = ""
+		for key, value := range logEvent.Fields {
+			logEvent.Event = key + "=\"" + value + "\"" + logEvent.Event
+		}
+	}
 
+	return logEvent
 }
 
 func main() {
@@ -247,11 +306,12 @@ func main() {
 	// Create a new test event
 	testEvent := nutest.TestEvent{
 		Path:    "/",
-		Headers: map[string]interface{}{"Optimize-Event": "true"},
+		Headers: map[string]interface{}{"Event-Output-Mode": "kv"},
 		Body: []byte(`
 		{
-			"time": "15000000000.500",
-			"sourcetype": "mysourcetype1",
+			"time": "15000000000",
+			"sourcetype": "mysourcetype",
+			"meta": "_subsecond::.814 date_second::59 date_hour::22 date_minute::0 date_year::2018 date_month::march date_mday::21 date_wday::wednesday date_zone::60 mytestfield1::bla mytestfield1::\"bla\"", 
 			"host": "myhost",
 			"source": "mysource",
 			"event": "name=\"Kent\" firstname=\"Clark\" address=\"101 mainstreet, New York\""
