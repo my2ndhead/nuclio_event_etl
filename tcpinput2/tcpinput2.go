@@ -24,6 +24,7 @@ type LogEvent struct {
 	Event      string `json:"event"`
 }
 
+// handleConnection
 func handleConnection(conn net.Conn) {
 	fmt.Println("Handling new connection...")
 

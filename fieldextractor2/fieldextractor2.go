@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -16,8 +18,9 @@ import (
 
 // RegexExtract Struct
 type RegexExtract struct {
-	Class string `json:"class"`
-	Regex string `json:"regex"`
+	Sourcetype string `json:"sourcetype"`
+	Class      string `json:"class"`
+	Regex      string `json:"regex"`
 }
 
 // LogEvent Struct
@@ -32,8 +35,120 @@ type LogEvent struct {
 	Fields     map[string]string `json:"fields"`
 }
 
+// ListBucketResult Struct
+type ListBucketResult struct {
+	Name           string         `xml:"Name"`
+	Prefix         string         `xml:"Prefix"`
+	Marker         string         `xml:"Marker"`
+	Delimiter      string         `xml:"Delimiter"`
+	NextMarker     string         `xml:"NextMarker"`
+	MaxKeys        string         `xml:"NextMaxKeys"`
+	IsTruncated    string         `xml:"IsTruncated"`
+	CommonPrefixes []CommonPrefix `xml:"CommonPrefixes"`
+}
+
+// CommonPrefix Struct
+type CommonPrefix struct {
+	Prefix string `xml:"Prefix"`
+}
+
+// InitContext for setting up function
+func InitContext(context *nuclio.Context) error {
+	context.UserData = fmt.Sprintf("User data initialized from context: %d", context.WorkerID)
+
+	container := context.DataBinding["db0"].(*v3io.Container)
+
+	listBucketResponse, listBucketerr := container.Sync.ListBucket(&v3io.ListBucketInput{
+		Path: "/conf/",
+	})
+
+	context.Logger.DebugWith("ListBucketResponse ", "resp", listBucketResponse)
+	context.Logger.DebugWith("ListBucketerr ", "resp", listBucketerr)
+
+	respBody := listBucketResponse.Body()
+
+	context.Logger.DebugWith("ListBucketResponse", "respBody", respBody)
+
+	var listBucketResult ListBucketResult
+
+	err := xml.Unmarshal((respBody), &listBucketResult)
+	if err != nil {
+		context.Logger.ErrorWith("Unmarshal error: %v", err)
+	}
+
+	sourcetypeRegex := `conf\/(?P<sourcetype>.*?)\/`
+	r, _ := regexp.Compile(sourcetypeRegex)
+
+	// Set loop variable to false first
+	var last = false
+
+	// Set marker initially to empty
+	var marker string
+
+	// Define slice for regexExtracts
+
+	var regexExtracts = make([]RegexExtract, 0)
+
+	// Loop over Regex Classes
+
+	for prefix := range listBucketResult.CommonPrefixes {
+		context.Logger.DebugWith("ListBucketResult", "prefix:", prefix)
+
+		str := listBucketResult.CommonPrefixes[prefix].Prefix
+
+		match := r.FindStringSubmatch(str)
+
+		for i, sourcetype := range match {
+			if i != 0 {
+				context.Logger.DebugWith("ListBucketResult", "sourcetype:", sourcetype)
+
+				for last == false {
+
+					GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
+						Path:           "conf/" + sourcetype + "/props/extract/",
+						AttributeNames: []string{"*"},
+						Limit:          1000,
+						Marker:         marker})
+
+					// Return nil if no regex found for sourcetype
+					if GetItemserr != nil {
+						context.Logger.WarnWith("Get Item *err*", "err", GetItemserr)
+						return nil
+					}
+
+					GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
+					context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
+
+					items := GetItemsResponse.Output.(*v3io.GetItemsOutput).Items
+
+					for item := range items {
+
+						class := items[item]["class"]
+						context.Logger.DebugWith("items", "class", class)
+
+						regex := items[item]["regex"]
+						context.Logger.DebugWith("items", "regex", regex)
+
+						regexExtracts = append(regexExtracts, RegexExtract{sourcetype, class.(string), regex.(string)})
+
+					}
+
+					marker = GetItemsResponse.Output.(*v3io.GetItemsOutput).NextMarker
+					last = GetItemsResponse.Output.(*v3io.GetItemsOutput).Last
+
+				}
+
+			}
+		}
+	}
+
+	return nil
+}
+
 // Handler for HTTP Triggers
 func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
+
+	InitContext(context)
 
 	container := context.DataBinding["db0"].(*v3io.Container)
 
@@ -169,7 +284,7 @@ func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuc
 	for last == false {
 
 		GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
-			Path:           "conf/" + sourcetype + "/extract/",
+			Path:           "conf/" + sourcetype + "/props/extract/",
 			AttributeNames: []string{"*"},
 			Limit:          1000,
 			Marker:         marker})
@@ -193,7 +308,7 @@ func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuc
 			regex := items[item]["regex"]
 			context.Logger.DebugWith("items", "regex", regex)
 
-			regexExtracts = append(regexExtracts, RegexExtract{class.(string), regex.(string)})
+			regexExtracts = append(regexExtracts, RegexExtract{sourcetype, class.(string), regex.(string)})
 
 		}
 
@@ -307,7 +422,7 @@ func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutput
 	if eventOutputMode == "kv" {
 		logEvent.Event = ""
 		for key, value := range logEvent.Fields {
-			logEvent.Event = key + "=\"" + value + "\"" + logEvent.Event
+			logEvent.Event = key + "=\"" + value + "\" " + logEvent.Event
 		}
 	}
 
@@ -330,7 +445,7 @@ func main() {
 		Headers: map[string]interface{}{"Event-Output-Mode": "kv"},
 		Body: []byte(`
 		{
-			"time": "1521750024.814",
+			"time": "1521751024.814",
 			"sourcetype": "mysourcetype",
 			"meta": "date_second::59 date_hour::22 date_minute::0 date_year::2018 date_month::march date_mday::21 date_wday::wednesday date_zone::60 mytestfield1::bla mytestfield1::\"bla\"", 
 			"host": "myhost",
