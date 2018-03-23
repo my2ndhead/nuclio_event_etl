@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io/ioutil"
+	"net/http"
 	"regexp"
 
 	"github.com/nuclio/nuclio-sdk-go"
@@ -39,6 +42,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	// Get Splunk Event Optimizer setting from header
 	var eventOutputMode = "normal"
+	context.Logger.Debug("Unmarshall LogEvent:", eventOutputMode)
 
 	if event.GetHeader("Event-Output-Mode") != nil {
 		// Header types differ between nuclio and nuclio-test invocations
@@ -87,29 +91,46 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	if regexExtracts != nil {
 
 		// Fetching fields from event
-		eventFields := getEventFields(regexExtracts, logEvent, eventOutputMode, context)
+		logEvent = getEventFields(regexExtracts, logEvent, eventOutputMode, context)
 
-		// Fetching internal fields from meta element
-		metaFields := getMetaFields(eventFields, context)
-
-		// Adding subsecond resolution to time element
-		metaFields.Time = metaFields.Time + metaFields.Fields["_subsecond"]
-		fieldsJSON, _ := json.Marshal(metaFields)
-		context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
-
-		return nuclio.Response{
-			StatusCode:  200,
-			ContentType: "application/json",
-			Body:        []byte(fieldsJSON),
-		}, nil
 	}
+	// Fetching internal fields from meta element
+	metaFields := getMetaFields(logEvent, context)
 
-	// Return logEvent if no fields extracted
-	logEventJSON, _ := json.Marshal(&logEvent)
+	// Adding subsecond resolution to time element
+	metaFields.Time = metaFields.Time + metaFields.Fields["_subsecond"]
+	fieldsJSON, _ := json.Marshal(metaFields)
+
+	// Throw away non HEC conform data
+	metaRegex := `("meta.*?",|"_subsecond.*?")`
+	r, err := regexp.Compile(metaRegex)
+	fieldsJSON = []byte(r.ReplaceAllString(string(fieldsJSON), ""))
+
+	context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+
+	url := "http://linuxmint.private.domain:8088/services/collector/event"
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fieldsJSON))
+	req.Header.Set("Authorization", "Splunk 65faf1be-c66c-4e0c-8d62-5501643c055c")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	context.Logger.InfoWith("HEC", "response Status:: %s", resp.Status)
+	context.Logger.InfoWith("HEC", "response Headers:: %s", resp.Header)
+
+	bodyHEC, _ := ioutil.ReadAll(resp.Body)
+	context.Logger.InfoWith("HEC", "response Headers:: %s", bodyHEC)
+
 	return nuclio.Response{
 		StatusCode:  200,
 		ContentType: "application/json",
-		Body:        logEventJSON,
+		Body:        fieldsJSON,
 	}, nil
 
 }
@@ -309,11 +330,12 @@ func main() {
 		Headers: map[string]interface{}{"Event-Output-Mode": "kv"},
 		Body: []byte(`
 		{
-			"time": "15000000000",
+			"time": "1521750024.814",
 			"sourcetype": "mysourcetype",
-			"meta": "_subsecond::.814 date_second::59 date_hour::22 date_minute::0 date_year::2018 date_month::march date_mday::21 date_wday::wednesday date_zone::60 mytestfield1::bla mytestfield1::\"bla\"", 
+			"meta": "date_second::59 date_hour::22 date_minute::0 date_year::2018 date_month::march date_mday::21 date_wday::wednesday date_zone::60 mytestfield1::bla mytestfield1::\"bla\"", 
 			"host": "myhost",
 			"source": "mysource",
+			"index": "main",
 			"event": "name=\"Kent\" firstname=\"Clark\" address=\"101 mainstreet, New York\""
 		}`),
 	}
