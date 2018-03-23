@@ -52,11 +52,137 @@ type CommonPrefix struct {
 	Prefix string `xml:"Prefix"`
 }
 
+var regexExtracts []RegexExtract
+
 // InitContext for setting up function
 func InitContext(context *nuclio.Context) error {
 	context.UserData = fmt.Sprintf("User data initialized from context: %d", context.WorkerID)
 
 	container := context.DataBinding["db0"].(*v3io.Container)
+
+	// Get Regex Extracts for sourceype
+	regexExtracts = getRegexExtracts(container, context)
+
+	return nil
+}
+
+// Handler for HTTP Triggers
+func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
+
+	// Uncomment for testmode
+	//InitContext(context)
+
+	//container := context.DataBinding["db0"].(*v3io.Container)
+
+	// Get Nuclio Event body
+	body := string(event.GetBody())
+
+	// Get Splunk Event Optimizer setting from header
+	var eventOutputMode = "normal"
+	context.Logger.Debug("Unmarshall LogEvent:", eventOutputMode)
+
+	if event.GetHeader("Event-Output-Mode") != nil {
+		// Header types differ between nuclio and nuclio-test invocations
+		if _, ok := event.GetHeader("Event-Output-Mode").([]byte); ok {
+			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]byte))
+		} else if _, ok := event.GetHeader("Event-Output-Mode").([]uint8); ok {
+			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]uint8))
+		} else if _, ok := event.GetHeader("Event-Output-Mode").(string); ok {
+			eventOutputMode = event.GetHeader("Event-Output-Mode").(string)
+		}
+	}
+
+	// Check for empty body
+	if len(body) == 0 {
+		context.Logger.Debug("Body empty")
+		return nuclio.Response{
+			StatusCode:  204,
+			ContentType: "application/text",
+
+			Body: []byte("Body empty"),
+		}, nil
+	}
+
+	var logEvent LogEvent
+
+	// Unmarshalling LogEvent
+
+	err := json.Unmarshal([]byte(body), &logEvent)
+
+	// Catching LogEvent unmarshalling errors
+	if err != nil {
+		context.Logger.Debug("Unmarshall LogEvent:", err)
+	}
+
+	// Setting up field key/value map
+	logEvent.Fields = map[string]string{}
+
+	// Define sourcetype (currently static)
+	sourcetype := logEvent.Sourcetype
+	context.Logger.DebugWith("logEvent", "sourcetype", sourcetype)
+
+	// Fetching fields from event
+	logEvent = getEventFields(regexExtracts, logEvent, eventOutputMode, context)
+
+	// Fetching internal fields from meta element
+	metaFields := getMetaFields(logEvent, context)
+
+	// Adding subsecond resolution to time element
+	metaFields.Time = metaFields.Time + metaFields.Fields["_subsecond"]
+	fieldsJSON, _ := json.Marshal(metaFields)
+
+	// Throw away non HEC conform data
+	metaRegex := `("meta.*?",|"_subsecond.*?",)`
+	r, err := regexp.Compile(metaRegex)
+	fieldsJSON = []byte(r.ReplaceAllString(string(fieldsJSON), ""))
+
+	context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
+
+	url := "http://linuxmint.private.domain:8088/services/collector/event"
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fieldsJSON))
+	req.Header.Set("Authorization", "Splunk 65faf1be-c66c-4e0c-8d62-5501643c055c")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	context.Logger.InfoWith("HEC", "response Status:: %s", resp.Status)
+	context.Logger.InfoWith("HEC", "response Headers:: %s", resp.Header)
+
+	bodyHEC, _ := ioutil.ReadAll(resp.Body)
+	context.Logger.InfoWith("HEC", "response Headers:: %s", bodyHEC)
+
+	return nuclio.Response{
+		StatusCode:  200,
+		ContentType: "application/json",
+		Body:        fieldsJSON,
+	}, nil
+
+}
+
+func doRegexMatch(r *regexp.Regexp, str string) map[string]string {
+
+	match := r.FindStringSubmatch(str)
+
+	if match != nil {
+		subMatchMap := make(map[string]string)
+		for i, name := range r.SubexpNames() {
+			if i != 0 {
+				subMatchMap[name] = match[i]
+			}
+		}
+		return subMatchMap
+
+	}
+	return nil
+}
+
+func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []RegexExtract {
 
 	listBucketResponse, listBucketerr := container.Sync.ListBucket(&v3io.ListBucketInput{
 		Path: "/conf/",
@@ -140,181 +266,6 @@ func InitContext(context *nuclio.Context) error {
 
 			}
 		}
-	}
-
-	return nil
-}
-
-// Handler for HTTP Triggers
-func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
-
-	InitContext(context)
-
-	container := context.DataBinding["db0"].(*v3io.Container)
-
-	// Get Nuclio Event body
-	body := string(event.GetBody())
-
-	// Get Splunk Event Optimizer setting from header
-	var eventOutputMode = "normal"
-	context.Logger.Debug("Unmarshall LogEvent:", eventOutputMode)
-
-	if event.GetHeader("Event-Output-Mode") != nil {
-		// Header types differ between nuclio and nuclio-test invocations
-		if _, ok := event.GetHeader("Event-Output-Mode").([]byte); ok {
-			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]byte))
-		} else if _, ok := event.GetHeader("Event-Output-Mode").([]uint8); ok {
-			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]uint8))
-		} else if _, ok := event.GetHeader("Event-Output-Mode").(string); ok {
-			eventOutputMode = event.GetHeader("Event-Output-Mode").(string)
-		}
-	}
-
-	// Check for empty body
-	if len(body) == 0 {
-		context.Logger.Debug("Body empty")
-		return nuclio.Response{
-			StatusCode:  204,
-			ContentType: "application/text",
-
-			Body: []byte("Body empty"),
-		}, nil
-	}
-
-	var logEvent LogEvent
-
-	// Unmarshalling LogEvent
-
-	err := json.Unmarshal([]byte(body), &logEvent)
-
-	// Catching LogEvent unmarshalling errors
-	if err != nil {
-		context.Logger.Debug("Unmarshall LogEvent:", err)
-	}
-
-	// Setting up field key/value map
-	logEvent.Fields = map[string]string{}
-
-	// Define sourcetype (currently static)
-	sourcetype := logEvent.Sourcetype
-	context.Logger.DebugWith("logEvent", "sourcetype", sourcetype)
-
-	// Get Regex Extracts for sourceype
-	var regexExtracts = getRegexExtracts(sourcetype, container, context)
-
-	// Running regexes over raw event
-	if regexExtracts != nil {
-
-		// Fetching fields from event
-		logEvent = getEventFields(regexExtracts, logEvent, eventOutputMode, context)
-
-	}
-	// Fetching internal fields from meta element
-	metaFields := getMetaFields(logEvent, context)
-
-	// Adding subsecond resolution to time element
-	metaFields.Time = metaFields.Time + metaFields.Fields["_subsecond"]
-	fieldsJSON, _ := json.Marshal(metaFields)
-
-	// Throw away non HEC conform data
-	metaRegex := `("meta.*?",|"_subsecond.*?")`
-	r, err := regexp.Compile(metaRegex)
-	fieldsJSON = []byte(r.ReplaceAllString(string(fieldsJSON), ""))
-
-	context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
-
-	url := "http://linuxmint.private.domain:8088/services/collector/event"
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fieldsJSON))
-	req.Header.Set("Authorization", "Splunk 65faf1be-c66c-4e0c-8d62-5501643c055c")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-
-	context.Logger.InfoWith("HEC", "response Status:: %s", resp.Status)
-	context.Logger.InfoWith("HEC", "response Headers:: %s", resp.Header)
-
-	bodyHEC, _ := ioutil.ReadAll(resp.Body)
-	context.Logger.InfoWith("HEC", "response Headers:: %s", bodyHEC)
-
-	return nuclio.Response{
-		StatusCode:  200,
-		ContentType: "application/json",
-		Body:        fieldsJSON,
-	}, nil
-
-}
-
-func doRegexMatch(r *regexp.Regexp, str string) map[string]string {
-
-	match := r.FindStringSubmatch(str)
-
-	if match != nil {
-		subMatchMap := make(map[string]string)
-		for i, name := range r.SubexpNames() {
-			if i != 0 {
-				subMatchMap[name] = match[i]
-			}
-		}
-		return subMatchMap
-
-	}
-	return nil
-}
-
-func getRegexExtracts(sourcetype string, container *v3io.Container, context *nuclio.Context) []RegexExtract {
-
-	// Set loop variable to false first
-	var last = false
-
-	// Set marker initially to empty
-	var marker string
-
-	// Define slice for regexExtracts
-
-	var regexExtracts = make([]RegexExtract, 0)
-
-	// Loop over Regex Classes
-
-	for last == false {
-
-		GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
-			Path:           "conf/" + sourcetype + "/props/extract/",
-			AttributeNames: []string{"*"},
-			Limit:          1000,
-			Marker:         marker})
-
-		// Return nil if no regex found for sourcetype
-		if GetItemserr != nil {
-			context.Logger.WarnWith("Get Item *err*", "err", GetItemserr)
-			return nil
-		}
-
-		GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
-		context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
-
-		items := GetItemsResponse.Output.(*v3io.GetItemsOutput).Items
-
-		for item := range items {
-
-			class := items[item]["class"]
-			context.Logger.DebugWith("items", "class", class)
-
-			regex := items[item]["regex"]
-			context.Logger.DebugWith("items", "regex", regex)
-
-			regexExtracts = append(regexExtracts, RegexExtract{sourcetype, class.(string), regex.(string)})
-
-		}
-
-		marker = GetItemsResponse.Output.(*v3io.GetItemsOutput).NextMarker
-		last = GetItemsResponse.Output.(*v3io.GetItemsOutput).Last
-
 	}
 
 	return regexExtracts
