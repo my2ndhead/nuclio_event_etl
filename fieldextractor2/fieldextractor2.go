@@ -16,6 +16,12 @@ import (
 
 //********************************
 
+// HECConnection Struct
+type HECConnection struct {
+	URL            string `json:"url"`
+	Authentication string `json:"authentication"`
+}
+
 // RegexExtract Struct
 type RegexExtract struct {
 	Sourcetype string `json:"sourcetype"`
@@ -54,6 +60,8 @@ type CommonPrefix struct {
 
 var regexExtracts []RegexExtract
 
+var myHECConnection HECConnection
+
 // InitContext for setting up function
 func InitContext(context *nuclio.Context) error {
 	context.UserData = fmt.Sprintf("User data initialized from context: %d", context.WorkerID)
@@ -63,6 +71,10 @@ func InitContext(context *nuclio.Context) error {
 	// Get Regex Extracts for sourceype
 	regexExtracts = getRegexExtracts(container, context)
 
+	myHECConnection = getHTTPEventCollectorConnection(container, context)
+
+	context.Logger.Debug("myHECConnection.URL:", myHECConnection.URL)
+
 	return nil
 }
 
@@ -70,16 +82,17 @@ func InitContext(context *nuclio.Context) error {
 func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	// Uncomment for testmode
-	//InitContext(context)
+	InitContext(context)
 
 	//container := context.DataBinding["db0"].(*v3io.Container)
 
 	// Get Nuclio Event body
 	body := string(event.GetBody())
 
-	// Get Splunk Event Optimizer setting from header
+	// Get Splunk Event Optimizer setting from header (normal, minimal, kv)
 	var eventOutputMode = "normal"
-	context.Logger.Debug("Unmarshall LogEvent:", eventOutputMode)
+
+	//context.Logger.Debug("Unmarshall LogEvent:", eventOutputMode)
 
 	if event.GetHeader("Event-Output-Mode") != nil {
 		// Header types differ between nuclio and nuclio-test invocations
@@ -117,10 +130,6 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	// Setting up field key/value map
 	logEvent.Fields = map[string]string{}
 
-	// Define sourcetype (currently static)
-	sourcetype := logEvent.Sourcetype
-	context.Logger.DebugWith("logEvent", "sourcetype", sourcetype)
-
 	// Fetching fields from event
 	logEvent = getEventFields(regexExtracts, logEvent, eventOutputMode, context)
 
@@ -138,10 +147,8 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
 	context.Logger.Debug("fieldsJSON: %s", fieldsJSON)
 
-	url := "http://linuxmint.private.domain:8088/services/collector/event"
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(fieldsJSON))
-	req.Header.Set("Authorization", "Splunk 65faf1be-c66c-4e0c-8d62-5501643c055c")
+	req, err := http.NewRequest("POST", myHECConnection.URL, bytes.NewBuffer(fieldsJSON))
+	req.Header.Set("Authorization", myHECConnection.Authentication)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{}
@@ -152,7 +159,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	defer resp.Body.Close()
 
 	context.Logger.InfoWith("HEC", "response Status:: %s", resp.Status)
-	context.Logger.InfoWith("HEC", "response Headers:: %s", resp.Header)
+	//context.Logger.InfoWith("HEC", "response Headers:: %s", resp.Header)
 
 	bodyHEC, _ := ioutil.ReadAll(resp.Body)
 	context.Logger.InfoWith("HEC", "response Headers:: %s", bodyHEC)
@@ -185,15 +192,17 @@ func doRegexMatch(r *regexp.Regexp, str string) map[string]string {
 func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []RegexExtract {
 
 	listBucketResponse, listBucketerr := container.Sync.ListBucket(&v3io.ListBucketInput{
-		Path: "/conf/",
+		Path: "/conf/props/",
 	})
 
-	context.Logger.DebugWith("ListBucketResponse ", "resp", listBucketResponse)
-	context.Logger.DebugWith("ListBucketerr ", "resp", listBucketerr)
+	//context.Logger.DebugWith("ListBucketResponse ", "resp", listBucketResponse)
+	if listBucketerr != nil {
+		context.Logger.ErrorWith("ListBucketerr ", "resp", listBucketerr)
+	}
 
 	respBody := listBucketResponse.Body()
 
-	context.Logger.DebugWith("ListBucketResponse", "respBody", respBody)
+	//context.Logger.DebugWith("ListBucketResponse", "respBody", respBody)
 
 	var listBucketResult ListBucketResult
 
@@ -202,7 +211,7 @@ func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []Rege
 		context.Logger.ErrorWith("Unmarshal error: %v", err)
 	}
 
-	sourcetypeRegex := `conf\/(?P<sourcetype>.*?)\/`
+	sourcetypeRegex := `props\/(?P<sourcetype>.*?)\/`
 	r, _ := regexp.Compile(sourcetypeRegex)
 
 	// Set loop variable to false first
@@ -218,7 +227,7 @@ func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []Rege
 	// Loop over Regex Classes
 
 	for prefix := range listBucketResult.CommonPrefixes {
-		context.Logger.DebugWith("ListBucketResult", "prefix:", prefix)
+		//context.Logger.DebugWith("ListBucketResult", "prefix:", prefix)
 
 		str := listBucketResult.CommonPrefixes[prefix].Prefix
 
@@ -226,12 +235,12 @@ func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []Rege
 
 		for i, sourcetype := range match {
 			if i != 0 {
-				context.Logger.DebugWith("ListBucketResult", "sourcetype:", sourcetype)
+				//context.Logger.DebugWith("ListBucketResult", "sourcetype:", sourcetype)
 
 				for last == false {
 
 					GetItemsResponse, GetItemserr := container.Sync.GetItems(&v3io.GetItemsInput{
-						Path:           "conf/" + sourcetype + "/props/extract/",
+						Path:           "conf/props/" + sourcetype + "/extract/",
 						AttributeNames: []string{"*"},
 						Limit:          1000,
 						Marker:         marker})
@@ -242,18 +251,18 @@ func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []Rege
 						return nil
 					}
 
-					GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
-					context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
+					//GetItemsOutput := GetItemsResponse.Output.(*v3io.GetItemsOutput)
+					//context.Logger.DebugWith("GetItems ", "resp", GetItemsOutput)
 
 					items := GetItemsResponse.Output.(*v3io.GetItemsOutput).Items
 
 					for item := range items {
 
 						class := items[item]["class"]
-						context.Logger.DebugWith("items", "class", class)
+						//context.Logger.DebugWith("items", "class", class)
 
 						regex := items[item]["regex"]
-						context.Logger.DebugWith("items", "regex", regex)
+						//context.Logger.DebugWith("items", "regex", regex)
 
 						regexExtracts = append(regexExtracts, RegexExtract{sourcetype, class.(string), regex.(string)})
 
@@ -272,6 +281,27 @@ func getRegexExtracts(container *v3io.Container, context *nuclio.Context) []Rege
 
 }
 
+func getHTTPEventCollectorConnection(container *v3io.Container, context *nuclio.Context) HECConnection {
+	GetItemResponse, GetItemerr := container.Sync.GetItem(&v3io.GetItemInput{
+		Path:           "/conf/outputs/hec/0",
+		AttributeNames: []string{"*"}})
+	if GetItemerr != nil {
+		context.Logger.ErrorWith("Get HEC Connection *err*", "err", GetItemerr)
+	} else {
+		GetItemOutput := GetItemResponse.Output.(*v3io.GetItemOutput)
+		context.Logger.InfoWith("Get HEC Connection ", "resp", GetItemOutput)
+	}
+
+	item := GetItemResponse.Output.(*v3io.GetItemOutput).Item
+
+	var myHECConnection HECConnection
+
+	myHECConnection.URL = item["url"].(string)
+	myHECConnection.Authentication = item["authorization"].(string)
+
+	return myHECConnection
+}
+
 // Function to add meta fields to field list
 func getMetaFields(logEvent LogEvent, context *nuclio.Context) LogEvent {
 
@@ -288,8 +318,8 @@ func getMetaFields(logEvent LogEvent, context *nuclio.Context) LogEvent {
 	regexExtracts = append(regexExtracts, RegexExtract{Class: "date_zone", Regex: "date_zone::(?P<date_zone>\\w+)"})
 
 	for _, regexExtract := range regexExtracts {
-		context.Logger.Debug("Meta Regex Extract Name: %v", regexExtract.Class)
-		context.Logger.Debug("Meta Regex Extract Regex: %v", regexExtract.Regex)
+		//context.Logger.Debug("Meta Regex Extract Name: %v", regexExtract.Class)
+		//context.Logger.Debug("Meta Regex Extract Regex: %v", regexExtract.Regex)
 
 		// Compiling regex
 		r, err := regexp.Compile(regexExtract.Regex)
@@ -300,14 +330,14 @@ func getMetaFields(logEvent LogEvent, context *nuclio.Context) LogEvent {
 		}
 
 		fields = doRegexMatch(r, logEvent.Meta)
-		context.Logger.Debug("Fields: %s", fields)
+		//context.Logger.Debug("Fields: %s", fields)
 
 		if fields != nil {
 			for key, value := range fields {
 				logEvent.Fields[key] = value
 			}
 
-			context.Logger.Debug("logEvent: %s", logEvent)
+			//context.Logger.Debug("logEvent: %s", logEvent)
 		}
 	}
 	return logEvent
@@ -317,12 +347,25 @@ func getMetaFields(logEvent LogEvent, context *nuclio.Context) LogEvent {
 // Function to add event fields to field list
 func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutputMode string, context *nuclio.Context) LogEvent {
 
+	regexFoundFlag := false
+
+	for i := range regexExtracts {
+		if regexExtracts[i].Sourcetype == logEvent.Sourcetype {
+			regexFoundFlag = true
+		}
+	}
+
+	// Nothing to do if regex is not found for event
+	if regexFoundFlag == false {
+		return logEvent
+	}
+
 	var fields map[string]string
 
 	for _, regexExtract := range regexExtracts {
 
-		context.Logger.Debug("Event Regex Extract Name: %v", regexExtract.Class)
-		context.Logger.Debug("Event Regex Extract Regex: %v", regexExtract.Regex)
+		//context.Logger.Debug("Event Regex Extract Name: %v", regexExtract.Class)
+		//context.Logger.Debug("Event Regex Extract Regex: %v", regexExtract.Regex)
 
 		// Compiling regex
 		r, err := regexp.Compile(regexExtract.Regex)
@@ -334,18 +377,20 @@ func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutput
 
 		// Running Regex over
 		fields = doRegexMatch(r, logEvent.Event)
-		context.Logger.Debug("Fields: %s", fields)
+		//context.Logger.Debug("Fields: %s", fields)
 
 		if fields != nil {
 			for key, value := range fields {
 				logEvent.Fields[key] = value
 			}
 
-			context.Logger.Debug("logEvent: %s", logEvent)
+			//context.Logger.Debug("logEvent: %s", logEvent)
 
 		}
 
 	}
+
+	eventOutputMode = "none"
 
 	// Output only segments, drop segmenter characters
 
@@ -355,26 +400,24 @@ func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutput
 			logEvent.Event = value + " " + logEvent.Event
 		}
 
-		segmentersRegex := `[.,:;]`
+		segmentersRegex := `[^A-Za-z0-9]`
 
 		r, err := regexp.Compile(segmentersRegex)
 
 		// Catchin regex errors
 		if err != nil {
 			context.Logger.Error("Regex Error:", segmentersRegex)
-			//return nil
 		}
 
-		logEvent.Event = r.ReplaceAllString(logEvent.Event, "")
-	}
-
-	// Output as key="value"
-
-	if eventOutputMode == "kv" {
+		logEvent.Event = r.ReplaceAllString(logEvent.Event, " ")
+	} else if eventOutputMode == "kv" {
 		logEvent.Event = ""
 		for key, value := range logEvent.Fields {
 			logEvent.Event = key + "=\"" + value + "\" " + logEvent.Event
+
 		}
+	} else if eventOutputMode == "none" {
+		logEvent.Event = "-"
 	}
 
 	return logEvent
@@ -393,16 +436,16 @@ func main() {
 	// Create a new test event
 	testEvent := nutest.TestEvent{
 		Path:    "/",
-		Headers: map[string]interface{}{"Event-Output-Mode": "kv"},
+		Headers: map[string]interface{}{"Event-Output-Mode": "none"},
 		Body: []byte(`
 		{
 			"time": "1521751024.814",
-			"sourcetype": "mysourcetype",
+			"sourcetype": "cisco:asa",
 			"meta": "date_second::59 date_hour::22 date_minute::0 date_year::2018 date_month::march date_mday::21 date_wday::wednesday date_zone::60 mytestfield1::bla mytestfield1::\"bla\"", 
 			"host": "myhost",
-			"source": "mysource",
+			"source": "127.0.0.1",
 			"index": "main",
-			"event": "name=\"Kent\" firstname=\"Clark\" address=\"101 mainstreet, New York\""
+			"event": "Mar 23 19:59:58 pix-inside %PIX-4-106023: Deny protocol 4 src outside:210.217.159.25 dst inside :10.87.80.86 by access-group \"ACL-FROM-OUTSIDE\""
 		}`),
 	}
 

@@ -51,12 +51,9 @@ func handleConnection(conn net.Conn) {
 
 	var fields map[string]string
 
-	regex := `time=(?P<time>.*?)\|meta=(?P<meta>.*?)\|host=(?P<host>.*?)\|sourcetype=(?P<sourcetype>.*?)\|source=(?P<source>.*?)\|index=(?P<index>.*?)\|(?P<event>.*?)###END###$`
+	regex := `time=(?P<time>.*?)\|meta=(?P<meta>.*?)\|host=(?P<host>.*?)\|sourcetype=(?P<sourcetype>.*?)\|source=(?P<source>.*?)\|index=(?P<index>.*?)\|(?P<event>.*?)$`
 
 	r, _ := regexp.Compile(regex)
-
-	f, _ := os.Create("/tmp/event")
-	defer f.Close()
 
 	// Loop over Lines
 	for scanner.Scan() {
@@ -81,14 +78,9 @@ func handleConnection(conn net.Conn) {
 
 			logEventJSON, _ := json.Marshal(logEvent)
 
-			bla := string(logEventJSON)
-
-			fmt.Println("Event:", bla)
-
 			url := "http://fieldextractor2.lcsystems:8080"
 
 			req, err := http.NewRequest("POST", url, bytes.NewBuffer(logEventJSON))
-			req.Header.Set("X-Custom-Header", "myvalue")
 			req.Header.Set("Content-Type", "application/json")
 
 			client := &http.Client{}
@@ -102,11 +94,6 @@ func handleConnection(conn net.Conn) {
 			fmt.Println("response Headers:", resp.Header)
 			body, _ := ioutil.ReadAll(resp.Body)
 			fmt.Println("response Body:", string(body))
-
-			//print("\nErr:\n", err)
-
-			//f.WriteString(fields)
-			//f.Sync()
 		}
 
 		// Reset timeout before looping
@@ -126,9 +113,6 @@ func handleConnection(conn net.Conn) {
 	logEventJSON, _ := json.Marshal(logEvent)
 
 	print("\nEvent:\n", logEventJSON)
-
-	//f.WriteString(event)
-	//f.Sync()
 }
 
 func doRegexMatch(r *regexp.Regexp, str string) map[string]string {
