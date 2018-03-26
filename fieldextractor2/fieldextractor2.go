@@ -105,6 +105,22 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 		}
 	}
 
+	// Get Splunk Field Prefixersetting from header (normal, prefix)
+	var fieldPrefixMode = "prefix"
+
+	//context.Logger.Debug("Unmarshall LogEvent:", eventOutputMode)
+
+	if event.GetHeader("Field-Prefix-Mode") != nil {
+		// Header types differ between nuclio and nuclio-test invocations
+		if _, ok := event.GetHeader("Event-Output-Mode").([]byte); ok {
+			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]byte))
+		} else if _, ok := event.GetHeader("Event-Output-Mode").([]uint8); ok {
+			eventOutputMode = string(event.GetHeader("Event-Output-Mode").([]uint8))
+		} else if _, ok := event.GetHeader("Event-Output-Mode").(string); ok {
+			eventOutputMode = event.GetHeader("Event-Output-Mode").(string)
+		}
+	}
+
 	// Check for empty body
 	if len(body) == 0 {
 		context.Logger.Debug("Body empty")
@@ -131,7 +147,7 @@ func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 	logEvent.Fields = map[string]string{}
 
 	// Fetching fields from event
-	logEvent = getEventFields(regexExtracts, logEvent, eventOutputMode, context)
+	logEvent = getEventFields(regexExtracts, logEvent, eventOutputMode, fieldPrefixMode, context)
 
 	// Fetching internal fields from meta element
 	metaFields := getMetaFields(logEvent, context)
@@ -345,7 +361,7 @@ func getMetaFields(logEvent LogEvent, context *nuclio.Context) LogEvent {
 }
 
 // Function to add event fields to field list
-func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutputMode string, context *nuclio.Context) LogEvent {
+func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutputMode string, fieldPrefixMode string, context *nuclio.Context) LogEvent {
 
 	regexFoundFlag := false
 
@@ -381,6 +397,10 @@ func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutput
 
 		if fields != nil {
 			for key, value := range fields {
+				if fieldPrefixMode == "prefix" {
+					key = "nuclio." + key
+				}
+
 				logEvent.Fields[key] = value
 			}
 
@@ -390,7 +410,7 @@ func getEventFields(regexExtracts []RegexExtract, logEvent LogEvent, eventOutput
 
 	}
 
-	eventOutputMode = "none"
+	eventOutputMode = "normal"
 
 	// Output only segments, drop segmenter characters
 
@@ -436,7 +456,7 @@ func main() {
 	// Create a new test event
 	testEvent := nutest.TestEvent{
 		Path:    "/",
-		Headers: map[string]interface{}{"Event-Output-Mode": "none"},
+		Headers: map[string]interface{}{"Event-Output-Mode": "none", "Field-Prefix-Mode": "prefix"},
 		Body: []byte(`
 		{
 			"time": "1521751024.814",
