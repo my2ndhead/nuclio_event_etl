@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tcpinput4
+  namespace: lcsystems
+  labels:
+    app: tcpinput4
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tcpinput4
+  template:
+    metadata:
+      name: tcpinput4
+      namespace: lcsystems
+      labels:
+        app: tcpinput4
+    spec:
+      containers:
+      - name: tcpinput4
+        image: my2ndhead.com/k8s-skaffold/tcpinput4:57179ea15a2e8bab295e632401429ca67cfe741475b10a420b78323fdcd3604f
+        ports:
+          - name: tcpinput4
+            containerPort: 12000
+            hostPort: 12000
+            nodePort: 12000
+            protocol: TCP
+      

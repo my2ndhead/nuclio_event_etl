@@ -1,0 +1,10 @@
+apiVersion: skaffold/v1alpha1
+kind: Config
+build:
+  artifacts:
+  - imageName: my2ndhead.com/k8s-skaffold/tcpinput4
+    workspace: .
+  local: {}
+deploy:
+  kubectl:
+    manifests:

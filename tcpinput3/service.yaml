@@ -1,0 +1,13 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: tcpinput3
+  namespace: lcsystems
+spec:
+  selector:
+    app: tcpinput3
+  ports:
+  - protocol: TCP
+    port: 12000
+    targetPort: 12000
+    nodePort: 12000

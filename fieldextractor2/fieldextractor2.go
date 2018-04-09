@@ -81,11 +81,6 @@ func InitContext(context *nuclio.Context) error {
 // Handler for HTTP Triggers
 func Handler(context *nuclio.Context, event nuclio.Event) (interface{}, error) {
 
-	// Uncomment for testmode
-	InitContext(context)
-
-	//container := context.DataBinding["db0"].(*v3io.Container)
-
 	// Get Nuclio Event body
 	body := string(event.GetBody())
 
@@ -452,6 +447,8 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	err = tc.InitContext(InitContext)
 
 	// Create a new test event
 	testEvent := nutest.TestEvent{

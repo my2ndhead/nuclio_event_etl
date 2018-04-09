@@ -1,0 +1,17 @@
+apiVersion: "nuclio.io/v1"
+kind: "Function"
+metadata:
+  name: raweventparser 
+  namespace: lcsystems
+spec:
+  runtime: "golang"
+  triggers:
+    myv3ioStream:
+    kind: v3ioStream
+    url: http://10.90.1.171:8081/splunk/streams/rawevents
+    attributes:
+      partitions: [0, 1, 2]
+      numContainerWorkers: 1
+      seekTo: latest
+      readBatchSize: 64
+      pollingIntervalMs: 250
